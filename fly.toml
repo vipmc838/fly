@@ -1,31 +1,31 @@
+# fly.toml
 app = "qinglong-panel"
-primary_region = "sin"
+primary_region = "hkg"  # sin = 新加坡 hkg = 香港nrt = 东京
 
 [build]
-  dockerfile = "Dockerfile"
 
 [env]
-  PORT = "8080"
-  NODE_ENV = "production"
+  TZ = "Asia/Shanghai"
   DATA_DIR = "/ql/data"
+  PORT = "5700"
 
 [http_service]
-  internal_port = 8080
+  internal_port = 5700
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = false    # 不自动停机，保持运行
   auto_start_machines = true
-  min_machines_running = 0
-  
+  min_machines_running = 1      # 至少1台机器运行
+
   [http_service.concurrency]
-    type = "requests"
-    hard_limit = 250
-    soft_limit = 200
+    type = "connections"
+    hard_limit = 100
+    soft_limit = 80
 
 [[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 512
+  size = "shared-cpu-1x"
+  memory = "256mb"              # 青龙面板至少需要512MB
 
 [mounts]
-  source = "qinglong_data"
+  source = "ql_data"
   destination = "/ql/data"
+  initial_size = 1              # 1GB持久化存储
