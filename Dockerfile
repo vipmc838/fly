@@ -1,39 +1,71 @@
-FROM node:20-alpine
+# Dockerfile
+FROM whyour/qinglong:latest
 
-WORKDIR /app
+WORKDIR /ql
 
-RUN apk add --no-cache \
-    bash \
-    git \
-    curl \
-    tar \
-    openssl \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    python3 \
-    py3-pip \
-    build-base \
-    python3-dev \
-    libffi-dev \
-    openssl-dev
+# 安装依赖
+RUN set -x \
+    && apk update \
+    && apk add --no-cache \
+        jq \
+        gcc \
+        musl-dev \
+        python3-dev \
+        libffi \
+        libffi-dev \
+        openssl \
+        openssl-dev \
+        g++ \
+        py-pip \
+        mysql-dev \
+        linux-headers \
+        pixman \
+        build-base \
+        cairo-dev \
+        jpeg-dev \
+        pango-dev \
+        giflib-dev \
+        rust \
+        cargo \
+        alpine-sdk \
+        autoconf \
+        automake \
+        libtool \
+        git \
+        tzdata \
+        curl \
+        coreutils \
+        chromium \
+        chromium-chromedriver \
+        nss \
+        freetype \
+        harfbuzz \
+        ca-certificates \
+        ttf-freefont \
+        font-noto-cjk \
+        udev \
+        xvfb \
+        dbus \
+    && pip install --no-cache-dir --break-system-packages \
+        user-agent aiohttp jieba ping3 requests selenium \
+    && npm install -g \
+        axios js-base64 typescript crypto-js jsdom tough-cookie
 
-COPY install.sh backup.sh restore.sh entrypoint.sh /app/
-RUN chmod +x /app/*.sh
-
-ENV DATA_DIR=/ql/data \
-    PORT=8080 \
-    NODE_ENV=production \
+# 环境变量
+ENV TZ=Asia/Shanghai \
     CHROME_BIN=/usr/bin/chromium-browser \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMIUM_FLAGS="--disable-software-rasterizer --disable-dev-shm-usage --no-sandbox"
 
-EXPOSE 8080
+# 复制脚本
+COPY entrypoint.sh /entrypoint.sh
+COPY backup.sh /ql/backup.sh
+COPY restore.sh /ql/restore.sh
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/api/system || exit 1
+# 设置执行权限 + 修复换行符
+RUN chmod +x /entrypoint.sh /ql/backup.sh /ql/restore.sh \
+    && sed -i 's/\r$//' /entrypoint.sh /ql/backup.sh /ql/restore.sh
 
-CMD ["/app/entrypoint.sh"]
+EXPOSE 5700
+
+ENTRYPOINT ["/entrypoint.sh"]
