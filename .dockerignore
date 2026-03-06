@@ -1,6 +1,0 @@
-node_modules
-.git
-.github
-*.log
-.env
-.DS_Store
