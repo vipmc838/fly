@@ -1,6 +1,6 @@
 # fly.toml
 app = "qinglong-panel"
-primary_region = "hkg"  # sin = 新加坡 hkg = 香港nrt = 东京
+primary_region = "gru"  # sin = 新加坡 hkg = 香港nrt = 东京
 
 [build]
 
