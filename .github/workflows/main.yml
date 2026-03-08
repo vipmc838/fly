@@ -1,37 +1,32 @@
-name: Deploy Modal App
+name: Deploy Modal FastAPI App
 
 on:
 #  push:
-#    branches: [ main ]          # 推送到 main 时触发部署
-  workflow_dispatch:            # 允许手动触发
+#    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  deploy-modal-app:
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 检出 modal 分支的代码
+      - name: Checkout modal branch
         uses: actions/checkout@v4
         with:
-          ref: 'modal'           # 指定从 modal 分支获取 app.py
+          ref: modal
 
-      - name: 列出文件（调试）
-        run: ls -la
-
-      - name: 设置 Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 安装依赖
+      - name: Install Modal
         run: pip install modal
 
-      - name: 部署 Modal 应用
+      - name: Deploy to Modal
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          # 传递你的自定义环境变量
-          FILE_PATH: ${{ secrets.FILE_PATH }}           # 可选，默认 .cache
+          FILE_PATH: ${{ secrets.FILE_PATH }}
           NEZHA_SERVER: ${{ secrets.NEZHA_SERVER }}
           NEZHA_PORT: ${{ secrets.NEZHA_PORT }}
           NEZHA_KEY: ${{ secrets.NEZHA_KEY }}
