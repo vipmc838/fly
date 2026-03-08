@@ -4,19 +4,21 @@ import subprocess
 import platform
 import random
 import threading
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 import modal
+import psutil  # 用于进程检查
 
 # ========== 定义 Modal 镜像，安装依赖 ==========
 image = modal.Image.debian_slim().pip_install(
-    "fastapi[standard]",  # 包含 uvicorn 等
+    "fastapi[standard]",
     "requests",
+    "psutil",
 )
 
 app = modal.App("nezha-fastapi-app", image=image)
 web_app = FastAPI()
 
-# ========== 辅助函数（与之前完全相同）==========
+# ========== 辅助函数（与之前一致，仅修改 exec_cmd 重定向输出）==========
 def create_directory(file_path):
     if not os.path.exists(file_path):
         os.makedirs(file_path)
@@ -47,18 +49,22 @@ def authorize_files(file_path):
             print(f"Chmod failed: {e}")
 
 def exec_cmd(command):
+    """执行命令，并将输出重定向到 /tmp/agent.log 以便排查"""
     try:
-        subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        with open('/tmp/agent.log', 'a') as f:
+            f.write(f"\n[{time.ctime()}] Running: {command}\n")
+            subprocess.Popen(
+                command,
+                shell=True,
+                stdout=f,
+                stderr=f,
+                start_new_session=True  # 使进程脱离父进程，成为守护进程
+            )
     except Exception as e:
         print(f"Command execution failed: {e}")
 
 def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
-    """运行 Nezha Agent（与之前完全一致，但增加日志）"""
+    """运行 Nezha Agent（增加详细日志）"""
     if not nezha_server or not nezha_key:
         print("NEZHA_SERVER or NEZHA_KEY missing, agent not started.")
         return
@@ -119,23 +125,39 @@ uuid: {uuid}"""
 # ========== FastAPI 路由 ==========
 @web_app.get("/")
 async def root():
-    return {
-        "status": "running",
-        "message": "Nezha agent is running in background",
-        "server": os.environ.get("NEZHA_SERVER"),
-        "uuid": os.environ.get("UUID"),
-        "hint": "Check Modal logs for agent details"
-    }
+    # 返回纯文本，避免 JSON 序列化递归问题
+    return Response(content="Nezha agent is running in background. Use /status to check process.", media_type="text/plain")
 
 @web_app.get("/health")
 async def health():
     return {"status": "healthy"}
 
-# ========== 在 Modal 启动时运行的函数 ==========
+@web_app.get("/status")
+async def status():
+    """检查 agent 进程是否存活（根据进程名匹配）"""
+    agent_names = ['cache_manager', 'session_handler', 'task_worker', 'log_rotator', 'health_check']
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmdline = ' '.join(proc.info['cmdline'] or [])
+            if any(name in cmdline for name in agent_names):
+                return {"status": "running", "pid": proc.info['pid'], "cmdline": cmdline[:100]}
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return {"status": "not running", "log_tail": tail_log('/tmp/agent.log')}
+
+def tail_log(filepath, lines=5):
+    """返回日志文件最后几行，方便调试"""
+    try:
+        with open(filepath, 'r') as f:
+            return f.read().splitlines()[-lines:]
+    except:
+        return ["Log file not found or empty"]
+
+# ========== Modal 入口函数 ==========
 @app.function()
 @modal.fastapi_endpoint(docs=True)
 def fastapi_app():
-    # 从环境变量读取配置（这些变量由 GitHub Actions 通过 modal deploy 传入）
+    # 从环境变量读取配置（由 GitHub Actions 传入）
     FILE_PATH = os.environ.get('FILE_PATH', '.cache')
     NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
     NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
@@ -149,7 +171,8 @@ def fastapi_app():
     def agent_starter():
         print("Starting Nezha agent in background thread...")
         run_agent(FILE_PATH, NEZHA_SERVER, NEZHA_PORT, NEZHA_KEY, UUID)
-        print("Nezha agent thread finished (should not happen if agent runs forever)")
+        print("Agent start command issued. Process may be running independently.")
+        # 可选：监控线程保持运行，定期检查进程（此处省略，避免无限打印）
 
     thread = threading.Thread(target=agent_starter, daemon=True)
     thread.start()
