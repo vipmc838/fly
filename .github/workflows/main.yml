@@ -21,7 +21,7 @@ jobs:
 
       - name: Install dependencies (for parsing)
         run: |
-          pip install modal fastapi[standard] requests psutil
+          pip install modal fastapi==0.115.0 requests psutil
 
       - name: Deploy to Modal
         env:
