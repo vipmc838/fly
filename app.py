@@ -3,21 +3,22 @@ import time
 import subprocess
 import platform
 import random
-import threading  # 用于启动 agent 后不阻塞 streamlit
+import threading
 
 # Modal 相关导入
 import modal
+from modal import web_server  # 注意：从 modal 导入 web_server
 
 # ========== 定义 Modal 镜像，安装所需依赖 ==========
 image = modal.Image.debian_slim().pip_install(
     "streamlit",
     "requests",
-    # 如果有其他依赖，可以继续添加
+    # 如果有其他依赖可继续添加
 )
 
 app = modal.App("nezha-streamlit-app", image=image)
 
-# ========== 原有函数保持不变（但将导入移到函数内部以避免顶层加载）==========
+# ========== 辅助函数（与之前相同，仅将 import 移到函数内部）==========
 def create_directory(file_path):
     if not os.path.exists(file_path):
         os.makedirs(file_path)
@@ -27,7 +28,7 @@ def get_system_architecture():
     return 'arm' if ('arm' in architecture or 'aarch64' in architecture) else 'amd'
 
 def download_file(file_name, file_url, file_path):
-    import requests  # 函数内部导入
+    import requests
     try:
         response = requests.get(file_url, stream=True, timeout=30)
         response.raise_for_status()
@@ -58,7 +59,7 @@ def exec_cmd(command):
         pass
 
 def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
-    """运行 Nezha Agent 的逻辑，参数从环境变量传入"""
+    """运行 Nezha Agent，参数从环境变量传入"""
     if not nezha_server or not nezha_key:
         return
 
@@ -68,10 +69,8 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
 
     # 构造下载 URL
     if nezha_port:
-        # 旧版 agent
         url = "https://arm64.ssss.nyc.mn/agent" if architecture == 'arm' else "https://amd64.ssss.nyc.mn/agent"
     else:
-        # 新版 v1
         url = "https://arm64.ssss.nyc.mn/v1" if architecture == 'arm' else "https://amd64.ssss.nyc.mn/v1"
 
     if not download_file(disguise_name, url, file_path):
@@ -80,15 +79,12 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
     agent_path = os.path.join(file_path, disguise_name)
     authorize_files(agent_path)
 
-    # 根据端口判断是否启用 TLS
     tls_ports = ['443', '8443', '2096', '2087', '2083', '2053']
 
     if nezha_port:
-        # 旧版命令行模式
         nezha_tls_flag = '--tls' if nezha_port in tls_ports else ''
         command = f"nohup {agent_path} -s {nezha_server}:{nezha_port} -p {nezha_key} {nezha_tls_flag} >/dev/null 2>&1 &"
     else:
-        # 新版配置文件模式（从 server 中提取端口）
         port = nezha_server.split(":")[-1] if ":" in nezha_server else ""
         nezha_tls = "true" if port in tls_ports else "false"
         config_yaml = f"""client_secret: {nezha_key}
@@ -118,19 +114,19 @@ uuid: {uuid}"""
 
     exec_cmd(command)
 
-# ========== Modal Web 服务入口 ==========
-@app.web_server(port=8501, startup_timeout=120)
+# ========== Web 服务入口（使用 @web_server 装饰器）==========
+@web_server(port=8501, startup_timeout=120)
 def web_entry():
     """
     此函数会在 Modal 容器中启动一个 Web 服务器。
-    它首先启动 Nezha Agent 后台进程，然后启动 Streamlit 服务器。
+    它首先启动 Nezha Agent 后台进程，然后启动 Streamlit 服务器并保持运行。
     """
-    # 从环境变量读取配置（这些变量会在 GitHub Actions 中设置）
+    # 从环境变量读取配置（这些变量会在 GitHub Actions 或本地设置）
     FILE_PATH = os.environ.get('FILE_PATH', '.cache')
     NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
     NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
     NEZHA_KEY = os.environ.get('NEZHA_KEY', '4z0HWnSGJtKFtKOlfJxSkNC3F8PIJ448')
-    UUID = os.environ.get('UUID', 'f6425bf5-165d-4cc9-8b41-36dd93339e7d')
+    UUID = os.environ.get('UUID', 'e7bb33c5-bb20-4670-b1f9-578ef06887b8')
 
     # 创建缓存目录
     create_directory(FILE_PATH)
@@ -141,8 +137,9 @@ def web_entry():
 
     threading.Thread(target=agent_thread, daemon=True).start()
 
-    # 启动 Streamlit 服务器
-    # 注意：必须使用 subprocess 启动，因为 streamlit 本身是一个进程
+    # 启动 Streamlit 服务器（使用子进程，避免与主进程冲突）
+    # 注意：将 Streamlit 页面代码单独保存为 streamlit_app.py 可避免循环调用，
+    # 但为简化，这里仍然使用 __file__，并通过环境变量判断是否已在子进程中。
     cmd = [
         "streamlit", "run", __file__,
         "--server.port", "8501",
@@ -150,16 +147,23 @@ def web_entry():
         "--server.enableCORS", "false",
         "--server.enableXsrfProtection", "false"
     ]
-    # 替换当前进程为 streamlit 进程（这样 Modal 就可以管理它的生命周期）
-    os.execvp("streamlit", cmd)
+    # 启动子进程
+    proc = subprocess.Popen(cmd)
 
-# ========== 以下是原有的 Streamlit 页面代码，但稍作调整 ==========
-# 注意：当通过 `modal run` 直接执行此文件时，会进入这里；
-# 当通过 Web 服务器方式启动时，streamlit 会重新执行此文件作为页面逻辑。
-# 因此需要将页面代码放在一个条件中，避免在后台启动时重复执行。
+    # 等待子进程结束（保持容器运行）
+    proc.wait()
 
+# ========== Streamlit 页面代码（仅在作为子进程执行时运行）==========
 if __name__ == "__main__":
     # 这部分只会在 Streamlit 重新加载文件时执行（即作为页面逻辑）
+    # 通过判断环境变量避免无限递归（可选）
+    if "STREAMLIT_RUN" in os.environ:
+        # 防止在子进程中再次启动 agent 等，直接执行页面逻辑
+        pass
+    else:
+        # 设置环境变量标记，表示已经在子进程中
+        os.environ["STREAMLIT_RUN"] = "1"
+
     import streamlit as st
     import streamlit.components.v1 as components
 
