@@ -1,12 +1,12 @@
-name: Run Modal App
+name: Deploy Modal App
 
 on:
 #  push:
-#    branches: [ main ]          # 可以保留 main 或根据需要修改
+#    branches: [ main ]          # 推送到 main 时触发部署
   workflow_dispatch:            # 允许手动触发
 
 jobs:
-  run-modal-app:
+  deploy-modal-app:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,7 +26,7 @@ jobs:
       - name: 安装依赖
         run: pip install modal
 
-      - name: 运行 Modal 应用
+      - name: 部署 Modal 应用
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
@@ -36,4 +36,4 @@ jobs:
           NEZHA_PORT: ${{ secrets.NEZHA_PORT }}
           NEZHA_KEY: ${{ secrets.NEZHA_KEY }}
           UUID: ${{ secrets.UUID }}
-        run: modal run app.py
+        run: modal deploy app.py
