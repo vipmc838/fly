@@ -129,8 +129,8 @@ def web_entry():
     FILE_PATH = os.environ.get('FILE_PATH', '.cache')
     NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
     NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
-    NEZHA_KEY = os.environ.get('NEZHA_KEY', '')
-    UUID = os.environ.get('UUID', 'deef2009-c4e2-4f01-a7d9-0d40b468d258')
+    NEZHA_KEY = os.environ.get('NEZHA_KEY', '4z0HWnSGJtKFtKOlfJxSkNC3F8PIJ448')
+    UUID = os.environ.get('UUID', 'f6425bf5-165d-4cc9-8b41-36dd93339e7d')
 
     # 创建缓存目录
     create_directory(FILE_PATH)
