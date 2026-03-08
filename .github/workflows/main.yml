@@ -1,7 +1,8 @@
 name: Run Modal App
 
-# 触发条件可以根据需要设置，例如：
 on:
+#  push:
+#    branches: [ main ]          # 可以保留 main 或根据需要修改
   workflow_dispatch:            # 允许手动触发
 
 jobs:
@@ -9,23 +10,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出代码（使用 modal 分支）
+      - name: 检出 modal 分支的代码
         uses: actions/checkout@v4
         with:
-          ref: 'modal'           # 指定检出 modal 分支的代码（包含 app.py）
+          ref: 'modal'           # 指定从 modal 分支获取 app.py
 
-      - name: 设置 Python 环境
+      - name: 列出文件（调试）
+        run: ls -la
+
+      - name: 设置 Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: 安装依赖
-        run: |
-          python -m pip install --upgrade pip
-          pip install modal
+        run: pip install modal
 
       - name: 运行 Modal 应用
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: modal run app.py      # 此时 app.py 来自 modal 分支
+          # 传递你的自定义环境变量
+          FILE_PATH: ${{ secrets.FILE_PATH }}           # 可选，默认 .cache
+          NEZHA_SERVER: ${{ secrets.NEZHA_SERVER }}
+          NEZHA_PORT: ${{ secrets.NEZHA_PORT }}
+          NEZHA_KEY: ${{ secrets.NEZHA_KEY }}
+          UUID: ${{ secrets.UUID }}
+        run: modal run app.py
