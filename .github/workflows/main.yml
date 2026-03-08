@@ -21,12 +21,13 @@ jobs:
 
       - name: Install dependencies (for parsing)
         run: |
-          pip install modal fastapi[standard] requests
+          pip install modal fastapi[standard] requests psutil
 
       - name: Deploy to Modal
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          FILE_PATH: ${{ secrets.FILE_PATH }}
           NEZHA_SERVER: ${{ secrets.NEZHA_SERVER }}
           NEZHA_PORT: ${{ secrets.NEZHA_PORT }}
           NEZHA_KEY: ${{ secrets.NEZHA_KEY }}
