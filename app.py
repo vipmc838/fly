@@ -5,7 +5,6 @@ import subprocess
 import platform
 import random
 import threading
-import psutil
 from fastapi import FastAPI, Response
 from fastapi.responses import PlainTextResponse
 import modal
@@ -36,14 +35,12 @@ _agent_lock = threading.Lock()
 # ========== 辅助函数 ==========
 
 def create_directory(file_path):
-    """确保目录存在"""
     if not os.path.exists(file_path):
         os.makedirs(file_path, exist_ok=True)
         print(f"Directory created: {file_path}")
 
 
 def get_system_architecture():
-    """检测系统架构"""
     architecture = platform.machine().lower()
     if 'arm' in architecture or 'aarch64' in architecture:
         return 'arm'
@@ -51,7 +48,6 @@ def get_system_architecture():
 
 
 def download_file(file_name, file_url, file_path):
-    """下载文件到指定路径"""
     import requests
     try:
         full_path = os.path.join(file_path, file_name)
@@ -71,7 +67,6 @@ def download_file(file_name, file_url, file_path):
 
 
 def authorize_files(file_path):
-    """设置文件执行权限"""
     if os.path.exists(file_path):
         try:
             os.chmod(file_path, 0o775)
@@ -83,7 +78,6 @@ def authorize_files(file_path):
 
 
 def write_log(message):
-    """写入日志"""
     try:
         with open('/tmp/agent.log', 'a') as f:
             f.write(f"[{time.ctime()}] {message}\n")
@@ -92,7 +86,6 @@ def write_log(message):
 
 
 def exec_cmd(command):
-    """执行命令并记录日志"""
     try:
         write_log(f"Executing: {command}")
         with open('/tmp/agent.log', 'a') as f:
@@ -112,7 +105,6 @@ def exec_cmd(command):
 
 
 def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
-    """下载并运行 Nezha Agent"""
     if not nezha_server or not nezha_key:
         msg = "NEZHA_SERVER or NEZHA_KEY is missing, agent will not start."
         print(msg)
@@ -123,7 +115,6 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
     print(f"Detected architecture: {architecture}")
     write_log(f"Architecture: {architecture}")
 
-    # 随机伪装名称
     disguise_names = [
         'cache_manager',
         'session_handler',
@@ -135,7 +126,6 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
     print(f"Using disguise name: {disguise_name}")
     write_log(f"Disguise name: {disguise_name}")
 
-    # 确定下载地址
     if nezha_port:
         if architecture == 'arm':
             url = "https://arm64.ssss.nyc.mn/agent"
@@ -150,7 +140,6 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
     print(f"Download URL: {url}")
     write_log(f"Download URL: {url}")
 
-    # 下载 agent
     if not download_file(disguise_name, url, file_path):
         msg = "Download failed, agent not started."
         print(msg)
@@ -160,7 +149,6 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
     agent_path = os.path.join(file_path, disguise_name)
     authorize_files(agent_path)
 
-    # 验证文件存在且有大小
     if os.path.exists(agent_path):
         file_size = os.path.getsize(agent_path)
         print(f"Agent file size: {file_size} bytes")
@@ -176,11 +164,9 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
         write_log(msg)
         return
 
-    # TLS 端口列表
     tls_ports = ['443', '8443', '2096', '2087', '2083', '2053']
 
     if nezha_port:
-        # 旧版 agent 模式（带 port 参数）
         nezha_tls_flag = '--tls' if nezha_port in tls_ports else ''
         command = (
             f"nohup {agent_path} "
@@ -190,7 +176,6 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
             f">/dev/null 2>&1 &"
         )
     else:
-        # 新版 v1 模式（使用配置文件）
         port = ""
         if ":" in nezha_server:
             port = nezha_server.split(":")[-1]
@@ -242,7 +227,6 @@ def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
 
 
 def tail_log(filepath, lines=10):
-    """读取日志文件最后 N 行"""
     try:
         with open(filepath, 'r') as f:
             all_lines = f.read().splitlines()
@@ -254,7 +238,7 @@ def tail_log(filepath, lines=10):
 
 
 def find_agent_processes():
-    """查找正在运行的 agent 进程"""
+    import psutil
     agent_names = [
         'cache_manager',
         'session_handler',
@@ -273,13 +257,12 @@ def find_agent_processes():
                     "name": proc.info.get('name', 'unknown'),
                     "status": proc.info.get('status', 'unknown'),
                 })
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        except Exception:
             continue
     return found
 
 
 def ensure_agent_started():
-    """确保 agent 只启动一次"""
     global _agent_started
     with _agent_lock:
         if _agent_started:
@@ -291,7 +274,6 @@ def ensure_agent_started():
     print("Initializing Nezha Agent...")
     print("=" * 50)
 
-    # 从环境变量读取配置
     FILE_PATH = os.environ.get('FILE_PATH', '.cache')
     NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
     NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
@@ -304,7 +286,6 @@ def ensure_agent_started():
     print(f"NEZHA_KEY:      {'***' + NEZHA_KEY[-4:] if len(NEZHA_KEY) > 4 else '(empty)'}")
     print(f"UUID:           {UUID}")
 
-    # 初始化日志文件
     write_log("=" * 40)
     write_log("Agent initialization started")
     write_log(f"FILE_PATH: {FILE_PATH}")
@@ -312,10 +293,8 @@ def ensure_agent_started():
     write_log(f"NEZHA_PORT: {NEZHA_PORT}")
     write_log(f"UUID: {UUID}")
 
-    # 创建目录
     create_directory(FILE_PATH)
 
-    # 后台线程启动 agent
     def agent_starter():
         try:
             run_agent(FILE_PATH, NEZHA_SERVER, NEZHA_PORT, NEZHA_KEY, UUID)
@@ -333,7 +312,6 @@ def ensure_agent_started():
 
 @web_app.on_event("startup")
 async def startup_event():
-    """容器启动时触发 agent"""
     print("FastAPI startup event fired.")
     ensure_agent_started()
 
@@ -342,7 +320,6 @@ async def startup_event():
 
 @web_app.get("/")
 async def root():
-    """根路径 - 纯文本响应"""
     return PlainTextResponse(
         content="Nezha Agent Runner is active.\n\n"
                 "Endpoints:\n"
@@ -350,12 +327,12 @@ async def root():
                 "  /status  - Agent process status\n"
                 "  /logs    - View agent logs\n"
                 "  /info    - System information\n"
+                "  /restart - Restart agent\n"
     )
 
 
 @web_app.get("/health")
 async def health():
-    """健康检查"""
     data = {
         "status": "healthy",
         "timestamp": time.time(),
@@ -369,7 +346,6 @@ async def health():
 
 @web_app.get("/status")
 async def status():
-    """检查 agent 进程状态"""
     processes = find_agent_processes()
 
     if processes:
@@ -394,7 +370,6 @@ async def status():
 
 @web_app.get("/logs")
 async def logs():
-    """查看 agent 运行日志"""
     log_lines = tail_log('/tmp/agent.log', lines=30)
     data = {
         "log_lines": len(log_lines),
@@ -408,7 +383,7 @@ async def logs():
 
 @web_app.get("/info")
 async def info():
-    """系统信息"""
+    import psutil
     data = {
         "platform": platform.platform(),
         "architecture": platform.machine(),
@@ -431,10 +406,9 @@ async def info():
 
 @web_app.get("/restart")
 async def restart_agent():
-    """重启 agent（先杀后启）"""
+    import psutil
     global _agent_started
 
-    # 杀掉现有进程
     killed = []
     processes = find_agent_processes()
     for proc_info in processes:
@@ -445,14 +419,10 @@ async def restart_agent():
         except Exception:
             pass
 
-    # 重置标记
     with _agent_lock:
         _agent_started = False
 
-    # 等待旧进程退出
     time.sleep(2)
-
-    # 重新启动
     ensure_agent_started()
 
     data = {
@@ -475,5 +445,4 @@ async def restart_agent():
 )
 @modal.asgi_app()
 def fastapi_app():
-    """Modal ASGI 入口，返回 FastAPI 应用实例"""
     return web_app
