@@ -14,7 +14,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: modal
+          ref: modal  # app.py文件的分支
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -43,13 +43,15 @@ jobs:
           # 等待删除完成
           sleep 2
 
-          # 创建新 secret
+          # 创建新 secret（PROJECT_URL 无需配置，会自动检测）
           modal secret create nezha-secrets \
             FILE_PATH="${{ secrets.FILE_PATH || '.cache' }}" \
             NEZHA_SERVER="${{ secrets.NEZHA_SERVER }}" \
             NEZHA_PORT="${{ secrets.NEZHA_PORT || '' }}" \
             NEZHA_KEY="${{ secrets.NEZHA_KEY }}" \
-            UUID="${{ secrets.UUID || '' }}"
+            UUID="${{ secrets.UUID || '' }}" \
+            AUTO_ACCESS="${{ secrets.AUTO_ACCESS || 'true' }}" \
+            KEEPALIVE_INTERVAL="${{ secrets.KEEPALIVE_INTERVAL || '120' }}"
           echo "Modal secret created successfully."
 
       - name: Deploy to Modal
@@ -60,3 +62,12 @@ jobs:
           echo "Deploying to Modal..."
           modal deploy app.py
           echo "Deployment complete."
+
+      - name: Trigger initial keepalive
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 10
+          echo "Sending initial request to trigger URL auto-detection..."
+          curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" \
+            "https://boosoyz--nezha-fastapi-app-fastapi-app.modal.run/health" || true
+          echo "Initial keepalive trigger complete."
