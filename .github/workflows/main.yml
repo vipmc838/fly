@@ -37,7 +37,13 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         run: |
-          modal secret delete nezha-secrets 2>/dev/null || true
+          # 删除旧 secret，用 echo y 自动确认
+          echo y | modal secret delete nezha-secrets 2>/dev/null || true
+
+          # 等待删除完成
+          sleep 2
+
+          # 创建新 secret
           modal secret create nezha-secrets \
             FILE_PATH="${{ secrets.FILE_PATH || '.cache' }}" \
             NEZHA_SERVER="${{ secrets.NEZHA_SERVER }}" \
