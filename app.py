@@ -31,6 +31,8 @@ web_app = FastAPI(
 # ========== 全局启动控制 ==========
 _agent_started = False
 _agent_lock = threading.Lock()
+_keepalive_started = False
+_keepalive_lock = threading.Lock()
 
 # ========== 辅助函数 ==========
 
@@ -262,6 +264,94 @@ def find_agent_processes():
     return found
 
 
+# ========== 自动保活功能 ==========
+
+def add_visit_task(project_url):
+    """通过 trans.ct8.pl 添加自动访问任务实现保活"""
+    import requests
+    try:
+        response = requests.post(
+            'https://trans.ct8.pl/add-url',
+            json={"url": project_url},
+            headers={'Content-Type': 'application/json'},
+            timeout=30,
+        )
+        response.raise_for_status()
+        msg = f"Automatic access task added successfully for {project_url}"
+        print(msg)
+        write_log(msg)
+        return True
+    except Exception as e:
+        msg = f"Add automatic access task failed: {e}"
+        print(msg)
+        write_log(msg)
+        return False
+
+
+def self_keepalive_loop(project_url, interval=120):
+    """后台自访问保活循环，每隔 interval 秒访问自身 /health 端点"""
+    import requests
+    health_url = project_url.rstrip('/') + '/health'
+    while True:
+        try:
+            time.sleep(interval + random.randint(0, 30))
+            response = requests.get(health_url, timeout=30)
+            msg = f"Self keepalive ping: {health_url} -> {response.status_code}"
+            print(msg)
+            write_log(msg)
+        except Exception as e:
+            msg = f"Self keepalive ping failed: {e}"
+            print(msg)
+            write_log(msg)
+
+
+def start_keepalive():
+    """启动保活机制（仅执行一次）"""
+    global _keepalive_started
+    with _keepalive_lock:
+        if _keepalive_started:
+            print("Keepalive already started, skipping.")
+            return
+        _keepalive_started = True
+
+    project_url = os.environ.get(
+        'PROJECT_URL',
+        'https://boosoyz--nezha-fastapi-app-fastapi-app.modal.run'
+    )
+    auto_access = os.environ.get('AUTO_ACCESS', 'true').lower()
+
+    if not project_url:
+        msg = "PROJECT_URL is empty, keepalive will not start."
+        print(msg)
+        write_log(msg)
+        return
+
+    print(f"Starting keepalive for: {project_url}")
+    write_log(f"Starting keepalive for: {project_url}")
+
+    # 1. 通过 trans.ct8.pl 注册自动访问任务
+    if auto_access in ('true', '1', 'yes'):
+        task_thread = threading.Thread(
+            target=add_visit_task,
+            args=(project_url,),
+            daemon=True,
+        )
+        task_thread.start()
+        print("External keepalive task submitted to trans.ct8.pl")
+        write_log("External keepalive task submitted to trans.ct8.pl")
+
+    # 2. 启动后台自访问保活循环
+    keepalive_interval = int(os.environ.get('KEEPALIVE_INTERVAL', '120'))
+    keepalive_thread = threading.Thread(
+        target=self_keepalive_loop,
+        args=(project_url, keepalive_interval),
+        daemon=True,
+    )
+    keepalive_thread.start()
+    print(f"Self keepalive loop started (interval: ~{keepalive_interval}s)")
+    write_log(f"Self keepalive loop started (interval: ~{keepalive_interval}s)")
+
+
 def ensure_agent_started():
     global _agent_started
     with _agent_lock:
@@ -314,6 +404,7 @@ def ensure_agent_started():
 async def startup_event():
     print("FastAPI startup event fired.")
     ensure_agent_started()
+    start_keepalive()
 
 
 # ========== FastAPI 路由 ==========
@@ -323,11 +414,12 @@ async def root():
     return PlainTextResponse(
         content="Nezha Agent Runner is active.\n\n"
                 "Endpoints:\n"
-                "  /health  - Health check\n"
-                "  /status  - Agent process status\n"
-                "  /logs    - View agent logs\n"
-                "  /info    - System information\n"
-                "  /restart - Restart agent\n"
+                "  /health    - Health check\n"
+                "  /status    - Agent process status\n"
+                "  /logs      - View agent logs\n"
+                "  /info      - System information\n"
+                "  /restart   - Restart agent\n"
+                "  /keepalive - Keepalive status\n"
     )
 
 
@@ -397,6 +489,28 @@ async def info():
         "disk_percent": psutil.disk_usage('/').percent,
         "pid": os.getpid(),
         "cwd": os.getcwd(),
+    }
+    return Response(
+        content=json.dumps(data),
+        media_type="application/json",
+    )
+
+
+@web_app.get("/keepalive")
+async def keepalive_status():
+    project_url = os.environ.get(
+        'PROJECT_URL',
+        'https://boosoyz--nezha-fastapi-app-fastapi-app.modal.run'
+    )
+    data = {
+        "keepalive_started": _keepalive_started,
+        "project_url": project_url,
+        "auto_access": os.environ.get('AUTO_ACCESS', 'true'),
+        "keepalive_interval": int(os.environ.get('KEEPALIVE_INTERVAL', '120')),
+        "recent_logs": [
+            line for line in tail_log('/tmp/agent.log', lines=20)
+            if 'keepalive' in line.lower() or 'automatic access' in line.lower()
+        ],
     }
     return Response(
         content=json.dumps(data),
