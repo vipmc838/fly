@@ -21,9 +21,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Modal CLI
+      - name: Install dependencies
         run: |
-          pip install modal
+          pip install modal fastapi==0.115.12
 
       - name: Setup Modal token
         env:
@@ -37,33 +37,20 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         run: |
-          # 尝试删除旧的 secret（忽略错误）
           modal secret delete nezha-secrets 2>/dev/null || true
-
-          # 创建新的 secret
           modal secret create nezha-secrets \
             FILE_PATH="${{ secrets.FILE_PATH || '.cache' }}" \
             NEZHA_SERVER="${{ secrets.NEZHA_SERVER }}" \
             NEZHA_PORT="${{ secrets.NEZHA_PORT || '' }}" \
             NEZHA_KEY="${{ secrets.NEZHA_KEY }}" \
             UUID="${{ secrets.UUID || '' }}"
-
-          echo "Modal secret 'nezha-secrets' created successfully."
+          echo "Modal secret created successfully."
 
       - name: Deploy to Modal
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         run: |
-          echo "Deploying app.py to Modal..."
+          echo "Deploying to Modal..."
           modal deploy app.py
           echo "Deployment complete."
-
-      - name: Verify deployment
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: |
-          echo "Listing Modal apps..."
-          modal app list 2>/dev/null || echo "Could not list apps"
-          echo "Deployment verification done."
