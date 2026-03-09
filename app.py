@@ -365,10 +365,10 @@ def ensure_agent_started():
     print("=" * 50)
 
     FILE_PATH = os.environ.get('FILE_PATH', '.cache')
-    NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
+    NEZHA_SERVER = os.environ.get('NEZHA_SERVER', '')
     NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
-    NEZHA_KEY = os.environ.get('NEZHA_KEY', '4z0HWnSGJtKFtKOlfJxSkNC3F8PIJ448')
-    UUID = os.environ.get('UUID', '371fea8c-e660-4940-9d95-f314495ab189')
+    NEZHA_KEY = os.environ.get('NEZHA_KEY', '')
+    UUID = os.environ.get('UUID', '')
 
     print(f"FILE_PATH:      {FILE_PATH}")
     print(f"NEZHA_SERVER:   {NEZHA_SERVER}")
