@@ -5,7 +5,7 @@ import subprocess
 import platform
 import random
 import threading
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, Request
 from fastapi.responses import PlainTextResponse
 import modal
 
@@ -33,6 +33,7 @@ _agent_started = False
 _agent_lock = threading.Lock()
 _keepalive_started = False
 _keepalive_lock = threading.Lock()
+_project_url = None  # 自动从首次请求中获取
 
 # ========== 辅助函数 ==========
 
@@ -266,6 +267,36 @@ def find_agent_processes():
 
 # ========== 自动保活功能 ==========
 
+def get_project_url():
+    """获取项目 URL，优先使用自动检测的值"""
+    global _project_url
+    if _project_url:
+        return _project_url
+    # 回退到环境变量或根据 Modal 命名规则拼接
+    return os.environ.get('PROJECT_URL', '')
+
+
+def auto_detect_url(request: Request):
+    """从首次请求中自动提取项目的公网 URL"""
+    global _project_url
+    if _project_url:
+        return
+
+    # 从请求头中提取（Modal 会设置 host 头）
+    scheme = request.headers.get('x-forwarded-proto', 'https')
+    host = request.headers.get('host', '')
+
+    if host:
+        detected = f"{scheme}://{host}"
+        _project_url = detected
+        msg = f"Auto-detected PROJECT_URL: {_project_url}"
+        print(msg)
+        write_log(msg)
+
+        # 检测到 URL 后立即启动保活
+        start_keepalive()
+
+
 def add_visit_task(project_url):
     """通过 trans.ct8.pl 添加自动访问任务实现保活"""
     import requests
@@ -289,7 +320,7 @@ def add_visit_task(project_url):
 
 
 def self_keepalive_loop(project_url, interval=120):
-    """后台自访问保活循环，每隔 interval 秒访问自身 /health 端点"""
+    """后台自访问保活循环"""
     import requests
     health_url = project_url.rstrip('/') + '/health'
     while True:
@@ -310,21 +341,20 @@ def start_keepalive():
     global _keepalive_started
     with _keepalive_lock:
         if _keepalive_started:
-            print("Keepalive already started, skipping.")
             return
         _keepalive_started = True
 
-    project_url = os.environ.get(
-        'PROJECT_URL',
-        'https://boosoyz--nezha-fastapi-app-fastapi-app.modal.run'
-    )
-    auto_access = os.environ.get('AUTO_ACCESS', 'true').lower()
-
+    project_url = get_project_url()
     if not project_url:
-        msg = "PROJECT_URL is empty, keepalive will not start."
+        msg = "PROJECT_URL is empty, keepalive will not start yet."
         print(msg)
         write_log(msg)
+        with _keepalive_lock:
+            _keepalive_started = False
         return
+
+    auto_access = os.environ.get('AUTO_ACCESS', 'true').lower()
+    keepalive_interval = int(os.environ.get('KEEPALIVE_INTERVAL', '120'))
 
     print(f"Starting keepalive for: {project_url}")
     write_log(f"Starting keepalive for: {project_url}")
@@ -341,7 +371,6 @@ def start_keepalive():
         write_log("External keepalive task submitted to trans.ct8.pl")
 
     # 2. 启动后台自访问保活循环
-    keepalive_interval = int(os.environ.get('KEEPALIVE_INTERVAL', '120'))
     keepalive_thread = threading.Thread(
         target=self_keepalive_loop,
         args=(project_url, keepalive_interval),
@@ -398,13 +427,22 @@ def ensure_agent_started():
     print("Agent starter thread launched.")
 
 
+# ========== FastAPI 中间件：自动检测 URL ==========
+
+@web_app.middleware("http")
+async def detect_url_middleware(request: Request, call_next):
+    auto_detect_url(request)
+    response = await call_next(request)
+    return response
+
+
 # ========== FastAPI 启动事件 ==========
 
 @web_app.on_event("startup")
 async def startup_event():
     print("FastAPI startup event fired.")
     ensure_agent_started()
-    start_keepalive()
+    # 保活会在首次请求到达、URL 被自动检测后启动
 
 
 # ========== FastAPI 路由 ==========
@@ -498,18 +536,17 @@ async def info():
 
 @web_app.get("/keepalive")
 async def keepalive_status():
-    project_url = os.environ.get(
-        'PROJECT_URL',
-        'https://boosoyz--nezha-fastapi-app-fastapi-app.modal.run'
-    )
+    project_url = get_project_url()
     data = {
         "keepalive_started": _keepalive_started,
-        "project_url": project_url,
+        "project_url": project_url or "not detected yet",
+        "auto_detected": bool(_project_url),
         "auto_access": os.environ.get('AUTO_ACCESS', 'true'),
         "keepalive_interval": int(os.environ.get('KEEPALIVE_INTERVAL', '120')),
         "recent_logs": [
             line for line in tail_log('/tmp/agent.log', lines=20)
             if 'keepalive' in line.lower() or 'automatic access' in line.lower()
+            or 'auto-detected' in line.lower()
         ],
     }
     return Response(
