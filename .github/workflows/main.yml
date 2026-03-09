@@ -4,12 +4,14 @@ on:
 #  push:
 #    branches: [ main ]
   workflow_dispatch:
+#  schedule:
+#    - cron: '0 */6 * * *'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout modal branch
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: modal
@@ -19,17 +21,49 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies (for parsing)
+      - name: Install Modal CLI
         run: |
-          pip install modal fastapi==0.115.0 requests psutil
+          pip install modal
+
+      - name: Setup Modal token
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET"
+
+      - name: Create or update Modal secrets
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          # 尝试删除旧的 secret（忽略错误）
+          modal secret delete nezha-secrets 2>/dev/null || true
+
+          # 创建新的 secret
+          modal secret create nezha-secrets \
+            FILE_PATH="${{ secrets.FILE_PATH || '.cache' }}" \
+            NEZHA_SERVER="${{ secrets.NEZHA_SERVER }}" \
+            NEZHA_PORT="${{ secrets.NEZHA_PORT || '' }}" \
+            NEZHA_KEY="${{ secrets.NEZHA_KEY }}" \
+            UUID="${{ secrets.UUID || '' }}"
+
+          echo "Modal secret 'nezha-secrets' created successfully."
 
       - name: Deploy to Modal
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          FILE_PATH: ${{ secrets.FILE_PATH }}
-          NEZHA_SERVER: ${{ secrets.NEZHA_SERVER }}
-          NEZHA_PORT: ${{ secrets.NEZHA_PORT }}
-          NEZHA_KEY: ${{ secrets.NEZHA_KEY }}
-          UUID: ${{ secrets.UUID }}
-        run: modal deploy app.py
+        run: |
+          echo "Deploying app.py to Modal..."
+          modal deploy app.py
+          echo "Deployment complete."
+
+      - name: Verify deployment
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          echo "Listing Modal apps..."
+          modal app list 2>/dev/null || echo "Could not list apps"
+          echo "Deployment verification done."
