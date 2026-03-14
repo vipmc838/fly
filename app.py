@@ -9,7 +9,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 # Environment variables
 FILE_PATH = os.environ.get('FILE_PATH', '.cache')
-PORT = int(os.environ.get('PORT', 3000))
+PORT = int(os.environ.get('PORT', 8080))
 NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
 NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
 NEZHA_KEY = os.environ.get('NEZHA_KEY', '4z0HWnSGJtKFtKOlfJxSkNC3F8PIJ448')
