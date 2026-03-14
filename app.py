@@ -12,8 +12,8 @@ FILE_PATH = os.environ.get('FILE_PATH', '.cache')
 PORT = int(os.environ.get('PORT', 8080))
 NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nezha.loc.cc:443')
 NEZHA_PORT = os.environ.get('NEZHA_PORT', '')
-NEZHA_KEY = os.environ.get('NEZHA_KEY', '4z0HWnSGJtKFtKOlfJxSkNC3F8PIJ448')
-UUID = os.environ.get('UUID', 'deef2009-c4e2-4f01-a7d9-0d40b468d258')
+NEZHA_KEY = os.environ.get('NEZHA_KEY', '')
+UUID = os.environ.get('UUID', '14319740-39ed-4813-8817-f3b710598230')
 
 # Random file names for disguise
 DISGUISE_NAMES = ['cache_manager', 'session_handler', 'task_worker', 'log_rotator', 'health_check']
