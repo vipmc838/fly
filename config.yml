@@ -5,7 +5,7 @@
 server: nezha.loc.cc:443
 
 # 面板中该 Agent 的 ClientSecret（密钥）
-client_secret: '4z0HWnSGJtKFtKOlfJxSkNC3F8PIJ448'
+client_secret: ''
 
 # Agent UUID，首次启动自动生成，请勿手动修改
 uuid: a6b091a6-679b-47d1-bc72-a4ac78ba2775
