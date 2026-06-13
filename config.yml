@@ -2,7 +2,7 @@
 # ============================================
 
 # 哪吒面板连接地址，格式: host:port (不含 http/https)
-server: nezha.loc.cc:443
+server: loc.cc:443
 
 # 面板中该 Agent 的 ClientSecret（密钥）
 client_secret: ''
