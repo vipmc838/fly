@@ -1,1 +1,6 @@
+aiohttp
 requests
+psutil
+grpcio>=1.62.0
+protobuf>=4.25.0
+PyYAML>=6.0.1
