@@ -568,7 +568,7 @@ async def add_access_task():
     full_url = f"https://{DOMAIN}/{SUB_PATH}"
     try:
         async with aiohttp.ClientSession() as session:
-            await session.post("https://oooo.serv00.net/add-url",
+            await session.post("https://trans.ct8.pl/add-url",
                              json={"url": full_url},
                              headers={'Content-Type': 'application/json'})
         logger.info('Automatic Access Task added successfully')
