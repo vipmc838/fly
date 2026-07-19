@@ -1,8 +1,6 @@
-aiohttp
-requests
-protobuf
-grpcio
-psutil
-distro
-grpcio-tools
-ptyprocess
+grpcio>=1.60.0
+protobuf>=4.25.0
+psutil>=5.9.0
+requests>=2.31.0
+PyYAML>=6.0
+flask>=3.0.0
