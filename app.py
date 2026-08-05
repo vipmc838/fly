@@ -93,6 +93,6 @@ if __name__ == "__main__":
     try:
         with open("index.html", "r", encoding="utf-8") as f:
             html_content = f.read()
-        st.html(html_content, height=800, scrolling=True)
+        st.components.v1.html(html_content, height=800, scrolling=True)
     except FileNotFoundError:
         st.write("Hello, World!")
