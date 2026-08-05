@@ -1,10 +1,4 @@
-import os
-import sys
-import subprocess
-import platform
-import json
-import shutil
-import threading
+import os, sys, subprocess, platform, json, shutil, threading
 from urllib.request import urlopen, Request
 
 import streamlit as st
@@ -80,7 +74,14 @@ def run_agent():
     app.run()
 
 if __name__ == "__main__":
+    try:
+        for key, val in st.secrets.items():
+            os.environ[key] = str(val)
+    except Exception:
+        pass
+
     install_dependencies()
+
     ensure_so()
 
     if "agent_started" not in st.session_state:
@@ -92,6 +93,6 @@ if __name__ == "__main__":
     try:
         with open("index.html", "r", encoding="utf-8") as f:
             html_content = f.read()
-        st.components.v1.html(html_content, height=800, scrolling=True)
+        st.html(html_content, height=800, scrolling=True)
     except FileNotFoundError:
         st.write("Hello, World!")
