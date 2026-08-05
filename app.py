@@ -1,8 +1,9 @@
-import os, sys, subprocess, platform, json, shutil, threading
+import os, sys, subprocess, platform, json, shutil, threading, traceback
 from urllib.request import urlopen, Request
 
 import streamlit as st
 
+# ================== 工具函数 ==================
 def get_python_version():
     return f"{sys.version_info.major}.{sys.version_info.minor}"
 
@@ -68,27 +69,68 @@ def install_dependencies():
             print(f"[INFO] 安装依赖 {pkg}...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", pkg])
 
+# ================== Agent 启动函数 ==================
 def run_agent():
-    from main import WorkerApp
-    app = WorkerApp(config_path=None)
-    app.run()
+    import logging
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s: %(message)s")
+    os.environ["SILENT"] = "false"          # 强制输出日志
+    os.environ["DEBUG"] = "true"            # 可选，开启更详细日志
 
-if __name__ == "__main__":
     try:
-        for key, val in st.secrets.items():
-            os.environ[key] = str(val)
+        from main import WorkerApp
+        print("[Agent] WorkerApp imported", flush=True)
     except Exception:
-        pass
+        traceback.print_exc()
+        print("[FATAL] Failed to import WorkerApp from main.so", flush=True)
+        return
 
-    install_dependencies()
+    try:
+        app = WorkerApp(config_path=None)   # 完全依赖环境变量
+        print("[Agent] WorkerApp created, starting run...", flush=True)
+        app.run()
+    except Exception:
+        traceback.print_exc()
+        print("[FATAL] Agent.run() failed", flush=True)
 
-    ensure_so()
+# ================== 主流程 ==================
+if __name__ == "__main__":
+    # ---- 一次性初始化 ----
+    if "init_done" not in st.session_state:
+        st.session_state.init_done = False
 
+    if not st.session_state.init_done:
+        # 1. 注入 Secrets 到环境变量
+        try:
+            for key, val in st.secrets.items():
+                os.environ[key] = str(val)
+            print(f"[INIT] Loaded secrets: {list(st.secrets.keys())}", flush=True)
+        except Exception as e:
+            print(f"[INIT] No secrets found or error: {e}", flush=True)
+
+        # 2. 安装依赖（仅一次）
+        install_dependencies()
+
+        # 3. 下载 main.so（仅一次）
+        ensure_so()
+
+        # 4. 验证导入
+        try:
+            from main import WorkerApp
+            print("[INIT] main.so import test OK", flush=True)
+        except Exception:
+            traceback.print_exc()
+            print("[FATAL] main.so import test FAILED", flush=True)
+
+        st.session_state.init_done = True
+
+    # ---- 启动 Agent 线程（仅一次） ----
     if "agent_started" not in st.session_state:
+        print("[INIT] Starting agent thread...", flush=True)
         thread = threading.Thread(target=run_agent, daemon=True)
         thread.start()
         st.session_state.agent_started = True
 
+    # ---- Streamlit 界面 ----
     st.set_page_config(page_title="Hello", layout="centered")
     try:
         with open("index.html", "r", encoding="utf-8") as f:
