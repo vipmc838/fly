@@ -5,3 +5,4 @@ protobuf
 pyyaml
 psutil
 aiohttp
+starlette<1.4,>=1.3
