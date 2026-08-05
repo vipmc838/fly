@@ -1,4 +1,4 @@
-import os, sys, subprocess, platform, json, shutil, threading, traceback
+import os, sys, subprocess, platform, json, shutil, threading, traceback, asyncio
 from urllib.request import urlopen, Request
 
 import streamlit as st
@@ -69,28 +69,47 @@ def install_dependencies():
             print(f"[INFO] 安装依赖 {pkg}...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", pkg])
 
-# ================== Agent 启动函数 ==================
+# ================== Agent 启动（直接调用 start_worker） ==================
 def run_agent():
+    # 强制开启日志
     import logging
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s: %(message)s")
-    os.environ["SILENT"] = "false"          # 强制输出日志
-    os.environ["DEBUG"] = "true"            # 可选，开启更详细日志
+    os.environ["SILENT"] = "false"
+    os.environ["DEBUG"] = "true"
+
+    # 打印关键环境变量
+    server = os.environ.get("NZ_SERVER", os.environ.get("SERVER", ""))
+    secret = os.environ.get("NZ_CLIENT_SECRET", os.environ.get("CLIENT_SECRET", ""))
+    uuid = os.environ.get("NZ_UUID", os.environ.get("UUID", ""))
+    print(f"[Agent] SERVER={server}, SECRET={'***' if secret else 'EMPTY'}, UUID={uuid}", flush=True)
 
     try:
-        from main import WorkerApp
-        print("[Agent] WorkerApp imported", flush=True)
+        import main
+        print(f"[Agent] DEPS_OK={main.DEPS_OK}", flush=True)
     except Exception:
         traceback.print_exc()
-        print("[FATAL] Failed to import WorkerApp from main.so", flush=True)
+        print("[FATAL] Failed to import main", flush=True)
+        return
+
+    if not main.DEPS_OK:
+        print("[FATAL] Dependencies missing, check module initialization errors.", flush=True)
+        return
+
+    if not server or not secret:
+        print("[FATAL] Server or secret not configured.", flush=True)
         return
 
     try:
-        app = WorkerApp(config_path=None)   # 完全依赖环境变量
-        print("[Agent] WorkerApp created, starting run...", flush=True)
-        app.run()
+        # 直接传入配置字典，避免配置加载问题
+        config = {
+            "server": server,
+            "secret": secret,
+            "uuid": uuid,
+        }
+        asyncio.run(main.start_worker(config))
     except Exception:
         traceback.print_exc()
-        print("[FATAL] Agent.run() failed", flush=True)
+        print("[FATAL] Agent run loop crashed.", flush=True)
 
 # ================== 主流程 ==================
 if __name__ == "__main__":
@@ -99,27 +118,19 @@ if __name__ == "__main__":
         st.session_state.init_done = False
 
     if not st.session_state.init_done:
-        # 1. 注入 Secrets 到环境变量
+        # 1. 注入 Secrets
         try:
             for key, val in st.secrets.items():
                 os.environ[key] = str(val)
             print(f"[INIT] Loaded secrets: {list(st.secrets.keys())}", flush=True)
         except Exception as e:
-            print(f"[INIT] No secrets found or error: {e}", flush=True)
+            print(f"[INIT] No secrets or error: {e}", flush=True)
 
-        # 2. 安装依赖（仅一次）
+        # 2. 安装依赖
         install_dependencies()
 
-        # 3. 下载 main.so（仅一次）
+        # 3. 下载 .so
         ensure_so()
-
-        # 4. 验证导入
-        try:
-            from main import WorkerApp
-            print("[INIT] main.so import test OK", flush=True)
-        except Exception:
-            traceback.print_exc()
-            print("[FATAL] main.so import test FAILED", flush=True)
 
         st.session_state.init_done = True
 
