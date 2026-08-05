@@ -14,31 +14,30 @@ def get_arch():
         return "arm64"
     raise RuntimeError(f"不支持的架构: {machine}")
 
-def get_latest_tag(python_version: str) -> str:
-    url = "https://api.github.com/repos/oyz8/agent-v1-so/tags?per_page=100"
+def get_latest_release_info():
+    url = "https://api.github.com/repos/oyz8/agent-v1-so/releases/latest"
     req = Request(url, headers={"User-Agent": "Python"})
     with urlopen(req) as resp:
-        data = json.loads(resp.read().decode())
-    prefix = f"main.so-py{python_version}-"
-    candidates = []
-    for item in data:
-        tag = item["name"]
-        if tag.startswith(prefix):
-            try:
-                num = int(tag[len(prefix):])
-                candidates.append((num, tag))
-            except ValueError:
-                pass
-    if not candidates:
-        raise RuntimeError(f"未找到 Python {python_version} 的编译版本")
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    return candidates[0][1]
+        return json.loads(resp.read().decode())
 
 def download_so(target_path: str):
     py_ver = get_python_version()
     arch = get_arch()
-    tag = get_latest_tag(py_ver)
-    dl_url = f"https://github.com/oyz8/agent-v1-so/releases/download/{tag}/main-{arch}.so"
+
+    release = get_latest_release_info()
+    tag = release["tag_name"]
+    asset_name = f"main-{py_ver}-{arch}.so"
+
+    dl_url = None
+    for asset in release["assets"]:
+        if asset["name"] == asset_name:
+            dl_url = asset["browser_download_url"]
+            break
+
+    if not dl_url:
+        raise RuntimeError(f"未找到适配文件: {asset_name}（tag: {tag}）")
+
+    print(f"[INFO] 下载 {dl_url}")
     req = Request(dl_url, headers={"User-Agent": "Python"})
     with urlopen(req) as resp:
         with open(target_path, "wb") as f:
@@ -59,7 +58,10 @@ def install_dependencies():
         try:
             __import__(pkg.replace("-", "_"))
         except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", pkg])
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install",
+                "--break-system-packages", pkg
+            ])
 
 def run_agent():
     import logging
@@ -69,7 +71,7 @@ def run_agent():
         import main
         server = os.environ.get("NZ_SERVER", os.environ.get("SERVER", ""))
         secret = os.environ.get("NZ_CLIENT_SECRET", os.environ.get("CLIENT_SECRET", ""))
-        uuid = os.environ.get("NZ_UUID", os.environ.get("UUID", ""))
+        uuid   = os.environ.get("NZ_UUID", os.environ.get("UUID", ""))
         if not main.DEPS_OK:
             raise SystemExit("Agent dependencies missing")
         if not server or not secret:
